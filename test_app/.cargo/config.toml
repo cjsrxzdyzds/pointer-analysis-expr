@@ -1,0 +1,7 @@
+[build]
+rustflags = [
+    "-C", "llvm-args=-enable-instmarker",
+    # "-C", "llvm-args=-enable-cpu-cycle-count", 
+    "-C", "llvm-args=-enable-runtime-alias",
+    "-C", "save-temps"
+]
