@@ -1,0 +1,12 @@
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/intrinsics_gen.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/omp_gen.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/acc_gen.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/edit_cache.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles/rebuild_cache.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/svf-checker/CMakeFiles/svf-checker.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/svf-checker/CMakeFiles/edit_cache.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/svf-checker/CMakeFiles/rebuild_cache.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/CMakeFiles/SvfPlugin.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/CMakeFiles/edit_cache.dir
+/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/CMakeFiles/rebuild_cache.dir
