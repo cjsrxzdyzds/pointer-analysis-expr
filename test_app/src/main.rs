@@ -1,31 +1,32 @@
 extern crate svf_runtime;
 
-fn foo(p: *const u8, q: *const u8) {
-    unsafe {
-        println!("Checking pointers: {:?} vs {:?}", p, q);
-    }
-}
-
 fn main() {
+    // Force linkage of svf_runtime
     svf_runtime::init();
-    let x = 10;
-    let y = 20;
-    println!("Running app...");
-    foo(&x, &x);
-    foo(&x, &y);
-}
+    
+    println!("Starting verification test...");
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    // 1. Heap allocation (Box) to ensure we bypass the Stack Filter
+    // My RuntimeAlias pass explicitly ignores AllocaInst, so we need Heap.
+    let mut x = Box::new(10);
+    let mut y = Box::new(20);
 
-    #[test]
-    fn test_instrumentation() {
-        let x = 100;
-        let y = 200;
-        // These calls should be instrumented by the LLVM pass.
-        // We expect entries in /tmp/svf_runtime_results.txt
-        foo(&x, &x);
-        foo(&x, &y);
+    let px = &mut *x as *mut i32;
+    let py = &mut *y as *mut i32;
+
+    unsafe {
+        // 2. Unsafe Store and Load
+        // Ideally, the compiler marks these with !unsafe_inst
+        // The RuntimeAlias pass should find them, confirm they are not stack,
+        // and insert __svf_check_alias(px, py, id)
+        
+        *px = 100;      // Store
+        let val = *py;  // Load
+        *py = val + 5;  // Store
+        
+        // This simple sequence ensures px and py are available and 'dominate' each other 
+        // in the flow (linear block).
+        
+        println!("Performed unsafe operations. x={}, y={}", *px, *py);
     }
 }
