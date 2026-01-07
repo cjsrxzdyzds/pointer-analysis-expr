@@ -62,12 +62,14 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
         errs() << "[SVF-LTO] Step 3: Running AndersenWaveDiff...\n";
         Andersen* ander = AndersenWaveDiff::createAndersenWaveDiff(pag);
         ander->analyze();
+        errs() << "[SVF-LTO] Returned from ander->analyze()\n";
         
         auto t3 = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> diff3 = t3 - t2;
         errs() << "[SVF-LTO] Analysis Done in " << diff3.count() << "s\n";
 
         // 4. Scan for __svf_check_alias calls
+        errs() << "[SVF-LTO] Step 4: Scanning for instrumentation...\n";
         // Since we are running at LTO time, all checks from all crates should be present.
         int checkCount = 0;
         for (Function &F : M) {
