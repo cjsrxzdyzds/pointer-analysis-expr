@@ -96,6 +96,7 @@ svf__checker_EXTERNAL_OBJECTS =
 svf-checker/svf-checker: svf-checker/CMakeFiles/svf-checker.dir/svf-checker.cpp.o
 svf-checker/svf-checker: svf-checker/CMakeFiles/svf-checker.dir/build.make
 svf-checker/svf-checker: /home/linuxbrew/.linuxbrew/lib/libz3.so.4.15.2.0
+svf-checker/svf-checker: /home/oscar/Projects/unsafebench/unsafe-rust-benchmark/build/x86_64-unknown-linux-gnu/llvm/lib/libLLVM.so.18.1-rust-dev
 svf-checker/svf-checker: svf-checker/CMakeFiles/svf-checker.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX executable svf-checker"
 	cd /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/svf-checker && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/svf-checker.dir/link.txt --verbose=$(VERBOSE)

@@ -1,7 +1,16 @@
-[package]
-name = "svf_runtime"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "svf_runtime",
+    "tests/minimal_test",
+    "tests/test_app",
+]
 
+[profile.dev]
+panic = "abort"
 
-[dependencies]
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+

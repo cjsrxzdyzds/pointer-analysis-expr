@@ -12,10 +12,8 @@ static IN_CHECKER: Cell<bool> = Cell::new(false);
 
 pub fn init() {
     println!("SVF Runtime Initialized");
-    unsafe { 
-        let ptr = __svf_check_alias as *const ();
-        println!("__svf_check_alias at {:?}", ptr);
-    }
+    let ptr = __svf_check_alias as *const ();
+    println!("__svf_check_alias at {:?}", ptr);
 }
 
 #[no_mangle]

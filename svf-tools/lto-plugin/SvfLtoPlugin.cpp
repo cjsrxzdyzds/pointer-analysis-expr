@@ -102,6 +102,20 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
                             // Output Result (Stdout for now, maybe file later)
                             // Format: ID:<id> RES:<1|0>
                             outs() << "ID:" << ID << " RES:" << (isAlias ? "1" : "0") << "\n";
+
+                            // Debugging Info
+                            errs() << "[SVF-LTO-DEBUG] Check #" << checkCount << " in " << CI->getFunction()->getName() << "\n";
+                            errs() << "  P: " << *P << " (NodeID: " << pId << ")\n";
+                            errs() << "  Q: " << *Q << " (NodeID: " << qId << ")\n";
+                            const PointsTo& ptsP = ander->getPts(pId);
+                            const PointsTo& ptsQ = ander->getPts(qId);
+                            errs() << "  PTS(P) Size: " << ptsP.count() << "\n";
+                            errs() << "  PTS(Q) Size: " << ptsQ.count() << "\n";
+                            
+                            if (ptsP.empty() || ptsQ.empty()) {
+                                errs() << "  [WARNING] One or more points-to sets are empty!\n";
+                            }
+
                             checkCount++;
                         }
                     }
