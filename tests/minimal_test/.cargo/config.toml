@@ -1,0 +1,11 @@
+[build]
+rustflags = [
+    # Offline Checker Usage:
+    # 1. Run: RUSTFLAGS="--emit=llvm-bc" cargo build --release
+    # 2. Run: ../../svf-tools/build/svf-checker/svf-checker target/release/deps/*.bc
+    "-C", "llvm-args=-enable-instmarker",
+    "-C", "llvm-args=-enable-runtime-alias",
+    "-C", "save-temps",
+    "-C", "link-arg=-nostartfiles",
+    "-Z", "llvm-plugins=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/libSvfPlugin.so"
+]

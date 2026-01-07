@@ -14,6 +14,24 @@
 using namespace llvm;
 using namespace SVF;
 
+#include "z3++.h"
+
+static void buildSVFModule(Module& M)
+{
+    errs() << "[SVF-LTO] Step 1: Building SVF Module...\n";
+    errs() << "[SVF-LTO] Probing Z3 Initialization...\n";
+    try {
+        z3::context ctx;
+        errs() << "[SVF-LTO] Z3 Context Created Successfully.\n";
+    } catch (...) {
+        errs() << "[SVF-LTO] Z3 Context Creation Failed.\n";
+    }
+    
+    // FIX: Rust's LTO context discards value names by default, which breaks SVF's extapi loading.
+    M.getContext().setDiscardValueNames(false);
+    LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(M);
+}
+
 // -----------------------------------------------------------------------------
 // SVF LTO Pass
 // -----------------------------------------------------------------------------
@@ -25,10 +43,7 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
         auto start = std::chrono::high_resolution_clock::now();
 
         // 1. Build SVF Module from In-Memory LLVM Module
-        errs() << "[SVF-LTO] Step 1: Building SVF Module...\n";
-        // FIX: Rust's LTO context discards value names by default, which breaks SVF's extapi loading.
-        M.getContext().setDiscardValueNames(false);
-        LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(M);
+        buildSVFModule(M);
         
         auto t1 = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> diff1 = t1 - start;

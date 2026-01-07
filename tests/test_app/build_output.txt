@@ -1,0 +1,161 @@
+   Compiling svf_runtime v0.1.0 (/home/oscar/Projects/pointeranalysis/pointer-analysis-expr)
+     Running `/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/build/x86_64-unknown-linux-gnu/stage1/bin/rustc --crate-name svf_runtime --edition=2021 /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C opt-level=3 -C linker-plugin-lto -C codegen-units=1 -C metadata=e66db8c862a5f999 -C extra-filename=-e66db8c862a5f999 --out-dir /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps -C strip=debuginfo -L dependency=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps -C llvm-args=-enable-instmarker -C llvm-args=-enable-runtime-alias -C save-temps -Z llvm-plugins=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/libSvfPlugin.so`
+warning: unnecessary `unsafe` block
+  --> /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/src/lib.rs:15:5
+   |
+15 |     unsafe { 
+   |     ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` on by default
+
+warning: `svf_runtime` (lib) generated 1 warning
+   Compiling test_app v0.1.0 (/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app)
+     Running `/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/build/x86_64-unknown-linux-gnu/stage1/bin/rustc --crate-name test_app --edition=2021 src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C opt-level=3 -C lto -C codegen-units=1 -C metadata=97d667ef7d9b2e38 -C extra-filename=-97d667ef7d9b2e38 --out-dir /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps -C strip=debuginfo -L dependency=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps --extern svf_runtime=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps/libsvf_runtime-e66db8c862a5f999.rlib -C llvm-args=-enable-instmarker -C llvm-args=-enable-runtime-alias -C save-temps -Z llvm-plugins=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/libSvfPlugin.so`
+
+[SVF-LTO] Starting In-Process Analysis...
+[SVF-LTO] Module: test_app.d0d20d8c509dee88-cgu.0
+[SVF-LTO] Step 1: Building SVF Module...
+[SVF-LTO] Probing Z3 Initialization...
+[SVF-LTO] Z3 Context Created Successfully.
+[SVF-LTO] Done building SVF Module in 2.691295e-01s
+[SVF-LTO] Step 2: Building PAG...
+[SVF-LTO] Done building PAG in 5.411225e-01s. Total Nodes: 75617
+[SVF-LTO] Step 3: Running AndersenWaveDiff...
+
+*********General Stats***************
+################ (program : test_app.d0d20d8c509dee88-cgu.0)###############
+AddrsNum            4802
+BBWith2Succ         6421
+BBWith3Succ         244
+CallsNum            4124
+ConstArrayObj       3
+ConstStructObj      311
+ConstantObj         0
+CopysNum            3880
+FIObjNum            992
+FSObjNum            945
+FunctionObjs        477
+GepsNum             10411
+GlobalObjs          333
+HeapObjs            109
+IndCallSites        179
+LoadsNum            7363
+MaxStructSize       36
+NonPtrObj           1914
+ReturnsNum          548
+StackObjs           1018
+StoresNum           6470
+TotalCallSite       8371
+TotalFieldObjects   955
+TotalObjects        2893
+TotalPTASVFStmts    24892
+TotalPointers       73679
+TotalSVFStmts       66612
+VarArrayObj         1023
+VarStructObj        22
+----------------Time and memory stats--------------------
+LLVMIRTime          0.025
+SVFIRTime           0.528
+SymbolTableTime     0.04
+#######################################################
+
+*********PTACallGraph Stats (Andersen analysis)***************
+################ (program : test_app.d0d20d8c509dee88-cgu.0)###############
+----------------Numbers stats----------------------------
+CalRetPairInCycle   324
+MaxNodeInCycle      95
+NodeInCycle         100
+TotalCycle          5
+TotalEdge           8274
+TotalNode           477
+#######################################################
+
+*********Andersen Pointer Analysis Stats***************
+################ (program : test_app.d0d20d8c509dee88-cgu.0)###############
+----------------Time and memory stats--------------------
+AvgIn/OutAddrEdge   0.208563
+AvgIn/OutCopyEdge   1.00826
+AvgIn/OutEdge       1.45848
+AvgIn/OutLoadEdge   0.127328
+AvgIn/OutStoreEdge  0.114326
+AvgPtsSetSize       34.5032
+AvgTopLvlPtsSize    120.106
+CollapseTime        0
+CopyGepTime         0
+LoadStoreTime       0
+MemoryUsageVmrss    181504
+MemoryUsageVmsize   196608
+SCCDetectTime       0
+SCCMergeTime        0
+TotalTime           2.799
+UpdateCGTime        0
+----------------Numbers stats----------------------------
+AddrProcessed       4802
+CopyProcessed       38508
+DummyFieldPtrs      885
+FieldObjs           955
+GepProcessed        17080
+IndCallSites        179
+IndEdgeSolved       82
+LoadProcessed       299749
+LocalVarInRecur     262
+MaxInAddrEdge       1
+MaxInCopyEdge       481
+MaxInLoadEdge       547
+MaxInStoreEdge      41
+MaxNodesInSCC       221
+MaxOutAddrEdge      2866
+MaxOutCopyEdge      1065
+MaxOutLoadEdge      42
+MaxOutStoreEdge     517
+MaxPtsSetSize       528
+MemObjects          2893
+NodesInCycles       1192
+NullPointer         594
+NumOfAddrs          4267
+NumOfCGEdge         25572
+NumOfCGNode         20837
+NumOfCopys          10855
+NumOfFieldExpand    0
+NumOfGeps           9773
+NumOfLoads          2605
+NumOfSCCDetect      12
+NumOfSFRs           0
+NumOfStores         2339
+NumOfValidNode      20459
+NumOfValidObjNode   2029
+Pointers            73679
+PointsToBlkPtr      0
+PointsToConstPtr    2001
+SolveIterations     12
+StoreProcessed      38690
+TotalCycleNum       242
+TotalObjects        2893
+TotalPWCCycleNum    18
+TotalPointers       73679
+#######################################################
+
+****Persistent Points-To Cache Statistics: Andersen's analysis bitvector****
+################ (program : test_app.d0d20d8c509dee88-cgu.0)###############
+UniquePointsToSets       8166
+TotalUnions              79087
+PropertyUnions           30646
+UniqueUnions             4213
+LookupUnions             36627
+PreemptiveUnions         7601
+TotalComplements         267555
+PropertyComplements      247638
+UniqueComplements        2155
+LookupComplements        15607
+PreemptiveComplements    2155
+TotalIntersections       190273
+PropertyIntersections    184656
+UniqueIntersections      123
+LookupIntersections      1119
+PreemptiveIntersections  4375
+#######################################################
+rustc: /home/oscar/Projects/pointeranalysis/SVF/svf/include/Graphs/GenericGraph.h:400: SVF::GenericGraph<NodeTy, EdgeTy>::NodeType* SVF::GenericGraph<NodeTy, EdgeTy>::getGNode(SVF::NodeID) const [with NodeTy = SVF::SVFVar; EdgeTy = SVF::SVFStmt; SVF::GenericGraph<NodeTy, EdgeTy>::NodeType = SVF::SVFVar; SVF::NodeID = unsigned int]: Assertion `it != IDToNodeMap.end() && "Node not found!"' failed.
+error: could not compile `test_app` (bin "test_app")
+
+Caused by:
+  process didn't exit successfully: `/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/build/x86_64-unknown-linux-gnu/stage1/bin/rustc --crate-name test_app --edition=2021 src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C opt-level=3 -C lto -C codegen-units=1 -C metadata=97d667ef7d9b2e38 -C extra-filename=-97d667ef7d9b2e38 --out-dir /home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps -C strip=debuginfo -L dependency=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps --extern svf_runtime=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/test_app/target/release/deps/libsvf_runtime-e66db8c862a5f999.rlib -C llvm-args=-enable-instmarker -C llvm-args=-enable-runtime-alias -C save-temps -Z llvm-plugins=/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/libSvfPlugin.so` (signal: 6, SIGABRT: process abort signal)
