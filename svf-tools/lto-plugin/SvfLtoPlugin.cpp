@@ -11,10 +11,11 @@
 #include "WPA/Andersen.h"
 #include "Util/SVFUtil.h"
 
-using namespace llvm;
 using namespace SVF;
+using namespace llvm;
 
 #include "z3++.h"
+#include "llvm/Analysis/ValueTracking.h"
 
 static void buildSVFModule(Module& M)
 {
@@ -34,7 +35,7 @@ static void buildSVFModule(Module& M)
 
 // Helper to strip casts (ptrtoint, bitcast)
 static Value* stripCasts(Value* V) {
-    if (auto *Op = dyn_cast<Operator>(V)) {
+    if (auto *Op = llvm::dyn_cast<llvm::Operator>(V)) {
         if (Op->getOpcode() == Instruction::PtrToInt || Op->getOpcode() == Instruction::BitCast) {
             // errs() << "Stripping cast: " << *V << "\n";
             return stripCasts(Op->getOperand(0));
@@ -86,7 +87,7 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
         for (Function &F : M) {
             for (BasicBlock &BB : F) {
                 for (Instruction &I : BB) {
-                    if (CallInst *CI = dyn_cast<CallInst>(&I)) {
+                    if (CallInst *CI = llvm::dyn_cast<CallInst>(&I)) {
                         Function *CalledFn = CI->getCalledFunction();
                         if (CalledFn && CalledFn->getName() == "__svf_check_alias") {
                             // Signature: void __svf_check_alias(i8* p, i8* q, i32 id)
@@ -97,7 +98,7 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
                             
                             // Get ID (Argument 2)
                             uint64_t ID = 0;
-                            if (ConstantInt *C = dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
+                            if (ConstantInt *C = llvm::dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
                                 ID = C->getZExtValue();
                             }
 
@@ -105,9 +106,38 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
                             // We need NodeIDs for P and Q
                             NodeID pId = LLVMModuleSet::getLLVMModuleSet()->getValueNode(P);
                             NodeID qId = LLVMModuleSet::getLLVMModuleSet()->getValueNode(Q);
+
+                            // Fallback: If NodeID is 0 (missing), try underlying object (conservative)
+                            if (pId == 0) {
+                                Value* pBase = getUnderlyingObject(P);
+                                if (pBase && pBase != P) {
+                                     pId = LLVMModuleSet::getLLVMModuleSet()->getValueNode(pBase);
+                                     if (pId != 0) {
+                                         errs() << "[SVF-LTO-DEBUG] Resolved P (GEP/Optimized) to Base: " << *pBase << " (NodeID: " << pId << ")\n";
+                                     }
+                                }
+                            }
+                            if (qId == 0) {
+                                Value* qBase = getUnderlyingObject(Q);
+                                if (qBase && qBase != Q) {
+                                     qId = LLVMModuleSet::getLLVMModuleSet()->getValueNode(qBase);
+                                     if (qId != 0) {
+                                         errs() << "[SVF-LTO-DEBUG] Resolved Q (GEP/Optimized) to Base: " << *qBase << " (NodeID: " << qId << ")\n";
+                                     }
+                                }
+                            }
                             
                             // Check Alias
-                            AliasResult res = ander->alias(pId, qId);
+                            // If still 0, we treat as NoAlias (or could treat as MayAlias if strict safety needed)
+                            AliasResult res = NoAlias;
+                            if (pId != 0 && qId != 0) {
+                                res = ander->alias(pId, qId);
+                            } else {
+                                errs() << "[SVF-LTO-DEBUG] WARNING: Could not resolve NodeID for P or Q. Assuming NoAlias (Unsafe?).\n";
+                                if (pId == 0) errs() << "  Missing P: " << *P << "\n";
+                                if (qId == 0) errs() << "  Missing Q: " << *Q << "\n";
+                            }
+
                             bool isAlias = (res != NoAlias);
 
                             // Output Result (Stdout for now, maybe file later)
@@ -130,13 +160,15 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
                             errs() << "[SVF-LTO-DEBUG] Check #" << checkCount << " in " << CI->getFunction()->getName() << "\n";
                             errs() << "  P: " << *P << " (NodeID: " << pId << ")\n";
                             errs() << "  Q: " << *Q << " (NodeID: " << qId << ")\n";
-                            const PointsTo& ptsP = ander->getPts(pId);
-                            const PointsTo& ptsQ = ander->getPts(qId);
-                            errs() << "  PTS(P) Size: " << ptsP.count() << "\n";
-                            errs() << "  PTS(Q) Size: " << ptsQ.count() << "\n";
-                            
-                            if (ptsP.empty() || ptsQ.empty()) {
-                                errs() << "  [WARNING] One or more points-to sets are empty!\n";
+                            if (pId != 0 && qId != 0) {
+                                const PointsTo& ptsP = ander->getPts(pId);
+                                const PointsTo& ptsQ = ander->getPts(qId);
+                                errs() << "  PTS(P) Size: " << ptsP.count() << "\n";
+                                errs() << "  PTS(Q) Size: " << ptsQ.count() << "\n";
+                                
+                                if (ptsP.empty() || ptsQ.empty()) {
+                                    errs() << "  [WARNING] One or more points-to sets are empty!\n";
+                                }
                             }
 
                             checkCount++;
@@ -168,6 +200,13 @@ llvmGetPassPluginInfo() {
       PB.registerFullLinkTimeOptimizationLastEPCallback(
         [](ModulePassManager &MPM, OptimizationLevel Level) {
             MPM.addPass(SvfLtoPass());
+        }
+      );
+      // And standard pipeline (for non-LTO testing / debugging)
+      PB.registerOptimizerLastEPCallback(
+        [](ModulePassManager &MPM, OptimizationLevel Level) {
+            errs() << "[SVF-LTO] OptimizerLast Callback triggered.\n";
+            // MPM.addPass(SvfLtoPass());
         }
       );
     }
