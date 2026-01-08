@@ -2,8 +2,6 @@
 resolver = "2"
 members = [
     "svf_runtime",
-    "tests/minimal_test",
-    "tests/test_app",
 ]
 
 [profile.dev]

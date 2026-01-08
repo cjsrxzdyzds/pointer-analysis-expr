@@ -32,6 +32,17 @@ static void buildSVFModule(Module& M)
     LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(M);
 }
 
+// Helper to strip casts (ptrtoint, bitcast)
+static Value* stripCasts(Value* V) {
+    if (auto *Op = dyn_cast<Operator>(V)) {
+        if (Op->getOpcode() == Instruction::PtrToInt || Op->getOpcode() == Instruction::BitCast) {
+            // errs() << "Stripping cast: " << *V << "\n";
+            return stripCasts(Op->getOperand(0));
+        }
+    }
+    return V;
+}
+
 // -----------------------------------------------------------------------------
 // SVF LTO Pass
 // -----------------------------------------------------------------------------
@@ -81,8 +92,8 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
                             // Signature: void __svf_check_alias(i8* p, i8* q, i32 id)
                             if (CI->arg_size() < 3) continue;
 
-                            Value *P = CI->getArgOperand(0);
-                            Value *Q = CI->getArgOperand(1);
+                            Value *P = stripCasts(CI->getArgOperand(0));
+                            Value *Q = stripCasts(CI->getArgOperand(1));
                             
                             // Get ID (Argument 2)
                             uint64_t ID = 0;
@@ -101,7 +112,19 @@ struct SvfLtoPass : public PassInfoMixin<SvfLtoPass> {
 
                             // Output Result (Stdout for now, maybe file later)
                             // Format: ID:<id> RES:<1|0>
-                            outs() << "ID:" << ID << " RES:" << (isAlias ? "1" : "0") << "\n";
+                            // outs() << "ID:" << ID << " RES:" << (isAlias ? "1" : "0") << "\n";
+
+                            // Inject Analysis Result into ID (Argument 2)
+                            // Top bit (31) = 1 if Alias (Predicted), 0 if NoAlias
+                            if (isAlias) {
+                                uint32_t newID = (uint32_t)ID | (1 << 31);
+                                CI->setArgOperand(2, ConstantInt::get(Type::getInt32Ty(M.getContext()), newID));
+                            } else {
+                                // Ensure top bit is 0 just in case (though likely already is)
+                                // If the ID uses top bit, we are in trouble, but assuming standard u32 IDs.
+                                uint32_t newID = (uint32_t)ID & ~(1 << 31);
+                                CI->setArgOperand(2, ConstantInt::get(Type::getInt32Ty(M.getContext()), newID));
+                            }
 
                             // Debugging Info
                             errs() << "[SVF-LTO-DEBUG] Check #" << checkCount << " in " << CI->getFunction()->getName() << "\n";

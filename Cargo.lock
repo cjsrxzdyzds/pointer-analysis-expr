@@ -3,16 +3,5 @@
 version = 3
 
 [[package]]
-name = "minimal_test"
-version = "0.1.0"
-
-[[package]]
 name = "svf_runtime"
 version = "0.1.0"
-
-[[package]]
-name = "test_app"
-version = "0.1.0"
-dependencies = [
- "svf_runtime",
-]
