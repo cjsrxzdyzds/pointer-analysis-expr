@@ -1,9 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/cmake_install.cmake",
-		"/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/svf-checker/cmake_install.cmake",
-		"/home/oscar/Projects/pointeranalysis/pointer-analysis-expr/svf-tools/build/lto-plugin/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
