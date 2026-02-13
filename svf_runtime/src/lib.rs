@@ -96,6 +96,80 @@ impl Drop for ThreadStats {
 
 use std::cell::RefCell;
 
+use std::collections::HashMap;
+#[macro_use]
+extern crate lazy_static;
+
+struct AllocInfo {
+    site_id: u64,
+    size: usize,
+}
+
+struct SiteStats {
+    alloc_count: u64,
+    alloc_bytes: u64,
+    free_count: u64,
+    free_bytes: u64,
+}
+
+impl SiteStats {
+    fn new() -> Self {
+        Self {
+            alloc_count: 0,
+            alloc_bytes: 0,
+            free_count: 0,
+            free_bytes: 0,
+        }
+    }
+}
+
+lazy_static! {
+    // Map pointer address -> Allocation Info
+    static ref PTR_INFO: Mutex<HashMap<usize, AllocInfo>> = Mutex::new(HashMap::new());
+    // Map Site ID -> Statistics
+    static ref SITE_STATS: Mutex<HashMap<u64, SiteStats>> = Mutex::new(HashMap::new());
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __svf_report_alloc(ptr: *mut u8, size: usize, site_id: u64) {
+    if ptr.is_null() { return; }
+    let addr = ptr as usize;
+    
+    // Update per-site stats
+    {
+        let mut stats = SITE_STATS.lock().unwrap();
+        let entry = stats.entry(site_id).or_insert_with(SiteStats::new);
+        entry.alloc_count += 1;
+        entry.alloc_bytes += size as u64;
+    }
+
+    // Record pointer info
+    {
+        let mut ptr_map = PTR_INFO.lock().unwrap();
+        ptr_map.insert(addr, AllocInfo { site_id, size });
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
+    if ptr.is_null() { return; }
+    let addr = ptr as usize;
+
+    let info_opt = {
+        let mut ptr_map = PTR_INFO.lock().unwrap();
+        ptr_map.remove(&addr)
+    };
+
+    if let Some(info) = info_opt {
+        let mut stats = SITE_STATS.lock().unwrap();
+        if let Some(entry) = stats.get_mut(&info.site_id) {
+            entry.free_count += 1;
+            entry.free_bytes += info.size as u64;
+        }
+    }
+}
+
+
 thread_local! {
     static LOCAL_STATS: RefCell<ThreadStats> = RefCell::new(ThreadStats::new());
 }
