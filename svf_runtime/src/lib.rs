@@ -48,6 +48,30 @@ pub fn print_stats() {
         println!("Accuracy: {:.2}%", accuracy);
     }
     println!("==============================\n");
+
+    // Heap Verification Stats
+    let mut total_heap_checks = 0;
+    let mut total_tp = 0;
+    let mut total_fp = 0;
+    
+    {
+        let stats = SITE_STATS.lock().unwrap();
+        for (_, s) in stats.iter() {
+            total_tp += s.true_positive;
+            total_fp += s.false_positive;
+        }
+    }
+    total_heap_checks = total_tp + total_fp;
+
+    println!("\n=== Heap Allocation Verification Stats ===");
+    println!("Total Heap Checks: {}", total_heap_checks);
+    println!("True Positives (Correctly Identified Heap): {}", total_tp);
+    println!("False Positives ( Identified Heap but not found): {}", total_fp);
+    if total_heap_checks > 0 {
+         let precision = (total_tp as f64 / total_heap_checks as f64) * 100.0;
+         println!("Precision: {:.2}%", precision);
+    }
+    println!("==========================================\n");
 }
 
 extern "C" {
@@ -96,9 +120,12 @@ impl Drop for ThreadStats {
 
 use std::cell::RefCell;
 
-use std::collections::HashMap;
+// using BTreeMap for range queries
 #[macro_use]
 extern crate lazy_static;
+
+use std::sync::RwLock;
+use std::collections::{BTreeMap, HashMap};
 
 struct AllocInfo {
     site_id: u64,
@@ -110,6 +137,13 @@ struct SiteStats {
     alloc_bytes: u64,
     free_count: u64,
     free_bytes: u64,
+    // Verification Stats
+    true_positive: u64,  // Unsafe access correctly identified as heap
+    false_positive: u64, // Unsafe access identified as heap but wasn't (likely impossible if we only track heap?) 
+                         // Actually: "Check Heap" means "Is this ptr a heap ptr?".
+                         // If svf says "This is heap", and we find it in map -> True Positive (Analysis correctness)
+                         // If svf says "This is heap", and we DO NOT find it -> False Positive (Analysis thought it was heap, but it wasn't allocated/active)
+    
 }
 
 impl SiteStats {
@@ -119,13 +153,17 @@ impl SiteStats {
             alloc_bytes: 0,
             free_count: 0,
             free_bytes: 0,
+            true_positive: 0,
+            false_positive: 0,
         }
     }
 }
 
 lazy_static! {
-    // Map pointer address -> Allocation Info
-    static ref PTR_INFO: Mutex<HashMap<usize, AllocInfo>> = Mutex::new(HashMap::new());
+    // Map Address -> (Size, SiteID)
+    // We use BTreeMap to allow range queries (ptr in [base, base+size))
+    static ref LIVE_HEAP: RwLock<BTreeMap<usize, (usize, u64)>> = RwLock::new(BTreeMap::new());
+    
     // Map Site ID -> Statistics
     static ref SITE_STATS: Mutex<HashMap<u64, SiteStats>> = Mutex::new(HashMap::new());
 }
@@ -145,8 +183,13 @@ pub unsafe extern "C" fn __svf_report_alloc(ptr: *mut u8, size: usize, site_id: 
 
     // Record pointer info
     {
-        let mut ptr_map = PTR_INFO.lock().unwrap();
-        ptr_map.insert(addr, AllocInfo { site_id, size });
+        // Skip if tracking (avoid reentrancy if BTreeMap allocates)
+        // For simplicity assuming RwLock doesn't alloc, but BTreeMap insert might.
+        // In heap_tracker.rs they used threads_local reentrancy guard.
+        // We really should use that here too if we were hooking malloc directly.
+        // Since we are inserting explicit calls, it's safer, but let's be careful.
+        let mut heap_map = LIVE_HEAP.write().unwrap();
+        heap_map.insert(addr, (size, site_id));
     }
 }
 
@@ -155,16 +198,51 @@ pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
     if ptr.is_null() { return; }
     let addr = ptr as usize;
 
-    let info_opt = {
-        let mut ptr_map = PTR_INFO.lock().unwrap();
-        ptr_map.remove(&addr)
+    let removed_info = {
+        let mut heap_map = LIVE_HEAP.write().unwrap();
+        heap_map.remove(&addr)
     };
 
-    if let Some(info) = info_opt {
+    if let Some((size, site_id)) = removed_info {
         let mut stats = SITE_STATS.lock().unwrap();
-        if let Some(entry) = stats.get_mut(&info.site_id) {
+        if let Some(entry) = stats.get_mut(&site_id) {
             entry.free_count += 1;
-            entry.free_bytes += info.size as u64;
+            entry.free_bytes += size as u64;
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
+    if ptr.is_null() { return; }
+    let addr = ptr as usize;
+
+    // Range query: find the last key <= addr
+    let is_valid_heap = {
+        let heap_map = LIVE_HEAP.read().unwrap();
+        if let Some((&base_addr, &(size, _alloc_site_id))) = heap_map.range(..=addr).next_back() {
+            // Check if addr is within [base_addr, base_addr + size)
+            addr < base_addr + size
+        } else {
+            false
+        }
+    };
+
+    // Update Verification Stats
+    {
+        let mut stats = SITE_STATS.lock().unwrap();
+        let entry = stats.entry(site_id).or_insert_with(SiteStats::new);
+        
+        if is_valid_heap {
+            entry.true_positive += 1;
+        } else {
+            entry.false_positive += 1; 
+            // This means SVF claimed it was a heap access (by checking site_id),
+            // but at runtime we couldn't find a live object covering this address.
+            // Could be:
+            // 1. Logic error in Analysis (Static Said Heap, Runtime says Stack/Global)
+            // 2. Use-After-Free (Valid Heap Object existed but is gone)
+            // 3. OOB Access (Valid Heap Object exists nearby but we are outside)
         }
     }
 }
