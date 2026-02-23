@@ -84,6 +84,11 @@ extern "C" fn print_stats_wrapper() {
     print_stats();
 }
 
+#[no_mangle]
+pub extern "C" fn __svf_print_stats() {
+    print_stats();
+}
+
 #[repr(C)]
 struct ThreadStats {
     true_alias: usize,
@@ -217,16 +222,20 @@ pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
     if ptr.is_null() { return; }
     let addr = ptr as usize;
 
+    let is_valid_heap;
     // Range query: find the last key <= addr
-    let is_valid_heap = {
+    {
+        // Limit the scope of the read lock
         let heap_map = LIVE_HEAP.read().unwrap();
+        // Since BTreeMap range is sorted by keys natively, `..=addr` guarantees
+        // the last element fetched is the greatest base_address that is <= our address.
         if let Some((&base_addr, &(size, _alloc_site_id))) = heap_map.range(..=addr).next_back() {
             // Check if addr is within [base_addr, base_addr + size)
-            addr < base_addr + size
+            is_valid_heap = addr < base_addr + size;
         } else {
-            false
+            is_valid_heap = false;
         }
-    };
+    }
 
     // Update Verification Stats
     {
@@ -237,12 +246,11 @@ pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
             entry.true_positive += 1;
         } else {
             entry.false_positive += 1; 
-            // This means SVF claimed it was a heap access (by checking site_id),
-            // but at runtime we couldn't find a live object covering this address.
-            // Could be:
-            // 1. Logic error in Analysis (Static Said Heap, Runtime says Stack/Global)
-            // 2. Use-After-Free (Valid Heap Object existed but is gone)
-            // 3. OOB Access (Valid Heap Object exists nearby but we are outside)
+            // Debugging Output required per plan:
+            eprintln!("[SVF RUNTIME WARNING] False Positive Detected!");
+            eprintln!("  -> SVF static analysis indicated pointer {:#x} accessing site {} was a valid heap object.", addr, site_id);
+            eprintln!("  -> However, at runtime, NO LIVE ALLOCATION bounds contained this pointer.");
+            eprintln!("  -> This indicates either (1) use-after-free, (2) out-of-bounds, or (3) static aliasing mismatch.");
         }
     }
 }
