@@ -10,6 +10,15 @@ thread_local! {
     static IN_CHECKER: Cell<bool> = Cell::new(false);
 }
 
+// raii guard that resets IN_CHECKER when dropped, ensuring the reentrancy
+// flag is cleared even if a panic occurs inside the hook functions.
+struct ReentrancyGuard;
+impl Drop for ReentrancyGuard {
+    fn drop(&mut self) {
+        IN_CHECKER.with(|c| c.set(false));
+    }
+}
+
 // Statistics
 static CNT_TRUE_ALIAS: AtomicUsize = AtomicUsize::new(0);
 static CNT_TRUE_DISJOINT: AtomicUsize = AtomicUsize::new(0);
@@ -176,31 +185,36 @@ lazy_static! {
 #[no_mangle]
 pub unsafe extern "C" fn __svf_report_alloc(ptr: *mut u8, size: usize, site_id: u64) {
     if ptr.is_null() { return; }
+    // reentrancy guard: btreemap/hashmap internal allocations can trigger
+    // this hook again, causing deadlock on LIVE_HEAP.write()
+    if IN_CHECKER.with(|c| c.get()) { return; }
+    IN_CHECKER.with(|c| c.set(true));
+    let _guard = ReentrancyGuard;
+
     let addr = ptr as usize;
-    
-    // Update per-site stats
+
+    // record pointer info
+    {
+        let mut heap_map = LIVE_HEAP.write().unwrap();
+        heap_map.insert(addr, (size, site_id));
+    }
+
+    // update per-site stats
     {
         let mut stats = SITE_STATS.lock().unwrap();
         let entry = stats.entry(site_id).or_insert_with(SiteStats::new);
         entry.alloc_count += 1;
         entry.alloc_bytes += size as u64;
     }
-
-    // Record pointer info
-    {
-        // Skip if tracking (avoid reentrancy if BTreeMap allocates)
-        // For simplicity assuming RwLock doesn't alloc, but BTreeMap insert might.
-        // In heap_tracker.rs they used threads_local reentrancy guard.
-        // We really should use that here too if we were hooking malloc directly.
-        // Since we are inserting explicit calls, it's safer, but let's be careful.
-        let mut heap_map = LIVE_HEAP.write().unwrap();
-        heap_map.insert(addr, (size, site_id));
-    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
     if ptr.is_null() { return; }
+    if IN_CHECKER.with(|c| c.get()) { return; }
+    IN_CHECKER.with(|c| c.set(true));
+    let _guard = ReentrancyGuard;
+
     let addr = ptr as usize;
 
     let removed_info = {
@@ -220,33 +234,32 @@ pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
 #[no_mangle]
 pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
     if ptr.is_null() { return; }
+    if IN_CHECKER.with(|c| c.get()) { return; }
+    IN_CHECKER.with(|c| c.set(true));
+    let _guard = ReentrancyGuard;
+
     let addr = ptr as usize;
 
     let is_valid_heap;
-    // Range query: find the last key <= addr
+    // range query: find the last key <= addr
     {
-        // Limit the scope of the read lock
         let heap_map = LIVE_HEAP.read().unwrap();
-        // Since BTreeMap range is sorted by keys natively, `..=addr` guarantees
-        // the last element fetched is the greatest base_address that is <= our address.
         if let Some((&base_addr, &(size, _alloc_site_id))) = heap_map.range(..=addr).next_back() {
-            // Check if addr is within [base_addr, base_addr + size)
             is_valid_heap = addr < base_addr + size;
         } else {
             is_valid_heap = false;
         }
     }
 
-    // Update Verification Stats
+    // update verification stats
     {
         let mut stats = SITE_STATS.lock().unwrap();
         let entry = stats.entry(site_id).or_insert_with(SiteStats::new);
-        
+
         if is_valid_heap {
             entry.true_positive += 1;
         } else {
-            entry.false_positive += 1; 
-            // Debugging Output required per plan:
+            entry.false_positive += 1;
             eprintln!("[SVF RUNTIME WARNING] False Positive Detected!");
             eprintln!("  -> SVF static analysis indicated pointer {:#x} accessing site {} was a valid heap object.", addr, site_id);
             eprintln!("  -> However, at runtime, NO LIVE ALLOCATION bounds contained this pointer.");
