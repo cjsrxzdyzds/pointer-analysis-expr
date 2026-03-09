@@ -43,8 +43,18 @@ lazy_static! {
     pub(crate) static ref LIVE_HEAP: std::sync::RwLock<BTreeMap<usize, (usize, u64)>> =
         std::sync::RwLock::new(BTreeMap::new());
 
-    /// per-site verification statistics.
     static ref SITE_STATS: Mutex<HashMap<u64, SiteStats>> = Mutex::new(HashMap::new());
+}
+
+/// Helper method to quickly identify if a given pointer hits a live heap object
+pub(crate) fn is_live_heap_obj(ptr: *const u8) -> bool {
+    let addr = ptr as usize;
+    let heap_map = LIVE_HEAP.read().unwrap();
+    if let Some((&base_addr, &(size, _))) = heap_map.range(..=addr).next_back() {
+        addr < base_addr + size
+    } else {
+        false
+    }
 }
 
 /// print heap verification statistics.
@@ -71,6 +81,17 @@ pub fn print_heap_stats() {
         println!("Precision: {:.2}%", precision);
     }
     println!("==========================================\n");
+}
+
+/// Helper function for `unsafe_heap_access` to query dynamic allocation volumes
+/// for SVF statically predicted `site_id`s.
+pub(crate) fn get_site_alloc_bytes(site_id: u64) -> u64 {
+    if let Ok(stats) = SITE_STATS.try_lock() {
+        if let Some(entry) = stats.get(&site_id) {
+            return entry.alloc_bytes;
+        }
+    }
+    0
 }
 
 #[no_mangle]
