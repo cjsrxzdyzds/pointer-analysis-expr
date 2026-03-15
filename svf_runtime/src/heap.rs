@@ -3,16 +3,13 @@
 //! and the LIVE_HEAP map shared with unsafe_heap_access module.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{IN_CHECKER, ReentrancyGuard};
 
-/// allocation metadata stored per live heap object.
-#[allow(dead_code)]
-pub(crate) struct AllocInfo {
-    pub site_id: u64,
-    pub size: usize,
-}
+/// global monotonic ticket counter for unique allocation id tracking
+static ALLOCATION_TICKET_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// per-site statistics for heap verification.
 struct SiteStats {
@@ -38,23 +35,25 @@ impl SiteStats {
 }
 
 lazy_static! {
-    /// map address -> (size, site_id). uses BTreeMap for range queries.
+    /// map address -> (size, site_id, ticket). uses BTreeMap for range queries.
     /// shared with unsafe_heap_access module for heap lookups.
-    pub(crate) static ref LIVE_HEAP: std::sync::RwLock<BTreeMap<usize, (usize, u64)>> =
+    pub(crate) static ref LIVE_HEAP: std::sync::RwLock<BTreeMap<usize, (usize, u64, u64)>> =
         std::sync::RwLock::new(BTreeMap::new());
 
     static ref SITE_STATS: Mutex<HashMap<u64, SiteStats>> = Mutex::new(HashMap::new());
 }
 
 /// Helper method to quickly identify if a given pointer hits a live heap object
-pub(crate) fn is_live_heap_obj(ptr: *const u8) -> bool {
+/// Returns the unique allocation ticket if found, or None.
+pub(crate) fn get_live_heap_ticket(ptr: *const u8) -> Option<u64> {
     let addr = ptr as usize;
     let heap_map = LIVE_HEAP.read().unwrap();
-    if let Some((&base_addr, &(size, _))) = heap_map.range(..=addr).next_back() {
-        addr < base_addr + size
-    } else {
-        false
+    if let Some((&base_addr, &(size, _site_id, ticket))) = heap_map.range(..=addr).next_back() {
+        if addr < base_addr + size {
+            return Some(ticket);
+        }
     }
+    None
 }
 
 /// print heap verification statistics.
@@ -102,10 +101,11 @@ pub unsafe extern "C" fn __svf_report_alloc(ptr: *mut u8, size: usize, site_id: 
     let _guard = ReentrancyGuard;
 
     let addr = ptr as usize;
+    let ticket = ALLOCATION_TICKET_COUNTER.fetch_add(1, Ordering::SeqCst);
 
     {
         let mut heap_map = LIVE_HEAP.write().unwrap();
-        heap_map.insert(addr, (size, site_id));
+        heap_map.insert(addr, (size, site_id, ticket));
     }
 
     {
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
         heap_map.remove(&addr)
     };
 
-    if let Some((size, site_id)) = removed_info {
+    if let Some((size, site_id, _ticket)) = removed_info {
         let mut stats = SITE_STATS.lock().unwrap();
         if let Some(entry) = stats.get_mut(&site_id) {
             entry.free_count += 1;
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
     let is_valid_heap;
     {
         let heap_map = LIVE_HEAP.read().unwrap();
-        if let Some((&base_addr, &(size, _alloc_site_id))) = heap_map.range(..=addr).next_back() {
+        if let Some((&base_addr, &(size, _alloc_site_id, _ticket))) = heap_map.range(..=addr).next_back() {
             is_valid_heap = addr < base_addr + size;
         } else {
             is_valid_heap = false;

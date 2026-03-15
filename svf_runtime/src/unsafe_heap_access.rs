@@ -1,7 +1,7 @@
 //! unsafe heap access counting module for svf runtime.
 //! tracks both svf-predicted and runtime-confirmed unsafe heap accesses.
 //! predicted: counts unique svf node ids (heap objects svf says are unsafely accessed).
-//! confirmed: checks ptr against LIVE_HEAP at runtime (actual heap hits).
+//! confirmed: tracks unique runtime ticket IDs of actually touched heap objects.
 //!
 //! IMPORTANT: this function is called for EVERY load/store in sese regions,
 //! including loads/stores inside this module and the runtime itself.
@@ -10,7 +10,7 @@
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 // predicted counters: track svf's raw prediction (unique node ids)
 static PREDICTED_LOAD: AtomicUsize = AtomicUsize::new(0);
@@ -20,6 +20,11 @@ static PREDICTED_OBJS: AtomicUsize = AtomicUsize::new(0);
 lazy_static! {
     /// set of svf node ids that svf predicts are unsafely accessed.
     static ref PREDICTED_SITE_IDS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+    
+    /// set of globally unique allocation tickets that were ACTUALLY touched by an unsafe pointer.
+    /// Since memory addresses are reused after `free`, we track unique ticket IDs to 
+    /// explicitly prevent double-counting or under-counting of historically touched objects.
+    static ref ACTUALLY_TOUCHED_TICKETS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
 }
 
 // zero-cost reentrancy guard — prevents recursive calls from instrumented
@@ -41,6 +46,12 @@ pub fn print_unsafe_heap_stats() {
         }
     }
 
+    let actual_touched_count = if let Ok(touched) = ACTUALLY_TOUCHED_TICKETS.try_lock() {
+        touched.len()
+    } else {
+        0
+    };
+
     println!("\n=== SVF Unsafe Heap Access Stats ===");
     println!("--- SVF Predicted (static analysis) ---");
     println!("Predicted unsafe heap objects: {}", pred_objs);
@@ -48,6 +59,8 @@ pub fn print_unsafe_heap_stats() {
     println!("Predicted unsafe load: {}", pred_load);
     println!("Predicted unsafe store: {}", pred_store);
     println!("Predicted total accesses: {}", pred_load + pred_store);
+    println!("--- Runtime Tracked Ground Truth ---");
+    println!("Historically Touched Unique Heap Objects: {}", actual_touched_count);
     println!("====================================\n");
 }
 
@@ -59,15 +72,19 @@ pub unsafe extern "C" fn __svf_predict_heap_access(ptr: *const u8, is_load: bool
     if IN_UNSAFE_ACCESS { return; }
 
     // Before matching HeapTracker, SESE tracks ALL valid pointers, even stack. Wait! Ground truth only tracks unsafe 'heap'.
-    // Check if it's genuinely inside the LIVE HEAP boundary.
-    if !crate::heap::is_live_heap_obj(ptr) { return; }
+    // Check if it's genuinely inside the LIVE HEAP boundary and retrieve its unique ticket!
+    if let Some(ticket) = crate::heap::get_live_heap_ticket(ptr) {
+        IN_UNSAFE_ACCESS = true;
 
-    IN_UNSAFE_ACCESS = true;
+        if let Ok(mut touched) = ACTUALLY_TOUCHED_TICKETS.try_lock() {
+            touched.insert(ticket);
+        }
 
-    if is_load { PREDICTED_LOAD.fetch_add(1, Ordering::Relaxed); }
-    else { PREDICTED_STORE.fetch_add(1, Ordering::Relaxed); }
+        if is_load { PREDICTED_LOAD.fetch_add(1, Ordering::Relaxed); }
+        else { PREDICTED_STORE.fetch_add(1, Ordering::Relaxed); }
 
-    IN_UNSAFE_ACCESS = false;
+        IN_UNSAFE_ACCESS = false;
+    }
 }
 
 /// runtime hook: called for EACH targetId predicted by SVF.
