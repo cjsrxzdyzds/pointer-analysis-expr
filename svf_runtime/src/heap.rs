@@ -44,13 +44,13 @@ lazy_static! {
 }
 
 /// Helper method to quickly identify if a given pointer hits a live heap object
-/// Returns the unique allocation ticket if found, or None.
-pub(crate) fn get_live_heap_ticket(ptr: *const u8) -> Option<u64> {
+/// Returns (ticket, site_id) if found, or None.
+pub(crate) fn get_live_heap_ticket(ptr: *const u8) -> Option<(u64, u64)> {
     let addr = ptr as usize;
     let heap_map = LIVE_HEAP.read().unwrap();
-    if let Some((&base_addr, &(size, _site_id, ticket))) = heap_map.range(..=addr).next_back() {
+    if let Some((&base_addr, &(size, site_id, ticket))) = heap_map.range(..=addr).next_back() {
         if addr < base_addr + size {
-            return Some(ticket);
+            return Some((ticket, site_id));
         }
     }
     None

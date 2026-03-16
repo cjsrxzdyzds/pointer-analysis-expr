@@ -25,6 +25,15 @@ lazy_static! {
     /// Since memory addresses are reused after `free`, we track unique ticket IDs to 
     /// explicitly prevent double-counting or under-counting of historically touched objects.
     static ref ACTUALLY_TOUCHED_TICKETS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+    /// set of live allocations that were touched AND whose site_id was analyzed by SVF.
+    static ref MATCHED_TOUCHED_TICKETS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+    /// set of unique site_ids that SVF successfully analyzed and were touched at runtime.
+    static ref MATCHED_SITE_IDS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+    /// set of unique site_ids that SVF missed but were touched at runtime (False Negatives).
+    static ref MISSED_SITE_IDS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
 }
 
 // zero-cost reentrancy guard — prevents recursive calls from instrumented
@@ -51,16 +60,31 @@ pub fn print_unsafe_heap_stats() {
     } else {
         0
     };
-
+    let matched_count = if let Ok(matched) = MATCHED_TOUCHED_TICKETS.try_lock() {
+        matched.len()
+    } else {
+        0
+    };
+    
+    let matched_sites = if let Ok(m) = MATCHED_SITE_IDS.try_lock() { m.len() } else { 0 };
+    let missed_sites = if let Ok(m) = MISSED_SITE_IDS.try_lock() { m.len() } else { 0 };
+    
     println!("\n=== SVF Unsafe Heap Access Stats ===");
-    println!("--- SVF Predicted (static analysis) ---");
-    println!("Predicted unsafe heap objects: {}", pred_objs);
-    println!("Predicted unsafe heap memory: {} bytes", pred_mem);
-    println!("Predicted unsafe load: {}", pred_load);
-    println!("Predicted unsafe store: {}", pred_store);
-    println!("Predicted total accesses: {}", pred_load + pred_store);
+    println!("--- SVF Static Prediction Targets ---");
+    println!("Predicted unsafe allocation sites: {}", pred_objs);
+
     println!("--- Runtime Tracked Ground Truth ---");
+    println!("Unsafe heap loads executed: {}", pred_load);
+    println!("Unsafe heap stores executed: {}", pred_store);
+    println!("Memory allocated by predicted sites: {} bytes", pred_mem);
     println!("Historically Touched Unique Heap Objects: {}", actual_touched_count);
+    println!("  -> Matched by SVF (True Positives): {} [from {} unique sites]", matched_count, matched_sites);
+    println!("  -> Missed by SVF (False Negatives): {} [from {} unique sites]", actual_touched_count - matched_count, missed_sites);
+    if let Ok(missed) = MISSED_SITE_IDS.try_lock() {
+        print!("     Missed Static Site IDs: ");
+        for &id in missed.iter() { print!("{} ", id); }
+        println!();
+    }
     println!("====================================\n");
 }
 
@@ -73,11 +97,26 @@ pub unsafe extern "C" fn __svf_predict_heap_access(ptr: *const u8, is_load: bool
 
     // Before matching HeapTracker, SESE tracks ALL valid pointers, even stack. Wait! Ground truth only tracks unsafe 'heap'.
     // Check if it's genuinely inside the LIVE HEAP boundary and retrieve its unique ticket!
-    if let Some(ticket) = crate::heap::get_live_heap_ticket(ptr) {
+    if let Some((ticket, site_id)) = crate::heap::get_live_heap_ticket(ptr) {
         IN_UNSAFE_ACCESS = true;
 
         if let Ok(mut touched) = ACTUALLY_TOUCHED_TICKETS.try_lock() {
             touched.insert(ticket);
+        }
+
+        if let Ok(predicted) = PREDICTED_SITE_IDS.try_lock() {
+            if predicted.contains(&site_id) {
+                if let Ok(mut matched) = MATCHED_TOUCHED_TICKETS.try_lock() {
+                    matched.insert(ticket);
+                }
+                if let Ok(mut sites) = MATCHED_SITE_IDS.try_lock() {
+                    sites.insert(site_id);
+                }
+            } else {
+                if let Ok(mut sites) = MISSED_SITE_IDS.try_lock() {
+                    sites.insert(site_id);
+                }
+            }
         }
 
         if is_load { PREDICTED_LOAD.fetch_add(1, Ordering::Relaxed); }
