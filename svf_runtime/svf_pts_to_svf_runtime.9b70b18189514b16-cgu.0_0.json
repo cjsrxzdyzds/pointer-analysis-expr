@@ -1,0 +1,22 @@
+{
+  "abstract_heap_objects": [
+    {"node_id": 39419, "alloc_fn": "__rust_alloc", "size": 0, "source": "  %_0 = call noundef ptr @__rust_alloc(i64 noundef %_3, i64 noundef %_12) #20, !dbg !1205", "source_loc": {"file": "/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/library/alloc/src/alloc.rs", "line": 100, "col": 9}},
+    {"node_id": 39592, "alloc_fn": "__rust_alloc_zeroed", "size": 0, "source": "  %21 = call noundef ptr @__rust_alloc_zeroed(i64 noundef %size, i64 noundef %_30) #20, !dbg !1464", "source_loc": {"file": "/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/library/alloc/src/alloc.rs", "line": 172, "col": 14}}
+  ],
+  "unsafe_ptrs": [
+
+  ],
+  "allocation_sites": [
+    {"instruction": "  %21 = call noundef ptr @__rust_alloc_zeroed(i64 noundef %size, i64 noundef %_30) #20, !dbg !1464", "node_id": 39592, "alloc_fn": "__rust_alloc_zeroed", "source_loc": {"file": "/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/library/alloc/src/alloc.rs", "line": 172, "col": 14}},
+    {"instruction": "  %_0 = call noundef ptr @__rust_alloc(i64 noundef %_3, i64 noundef %_12) #20, !dbg !1205", "node_id": 39419, "alloc_fn": "__rust_alloc", "source_loc": {"file": "/home/oscar/Projects/unsafebench/unsafe-rust-benchmark/library/alloc/src/alloc.rs", "line": 100, "col": 9}}
+  ],
+  "aliased_allocation_sites": [
+
+  ],
+  "summary": {
+    "module": "svf_runtime.9b70b18189514b16-cgu.0",
+    "abstract_heap_objects_count": 2,
+    "unsafe_ptrs_count": 0,
+    "allocation_sites_count": 2
+  }
+}

@@ -79,6 +79,11 @@ pub fn print_unsafe_heap_stats() {
     println!("Memory allocated by predicted sites: {} bytes", pred_mem);
     println!("Historically Touched Unique Heap Objects: {}", actual_touched_count);
     println!("  -> Matched by SVF (True Positives): {} [from {} unique sites]", matched_count, matched_sites);
+    if let Ok(matched) = MATCHED_SITE_IDS.try_lock() {
+        print!("     Matched Static Site IDs: ");
+        for &id in matched.iter() { print!("{} ", id); }
+        println!();
+    }
     println!("  -> Missed by SVF (False Negatives): {} [from {} unique sites]", actual_touched_count - matched_count, missed_sites);
     if let Ok(missed) = MISSED_SITE_IDS.try_lock() {
         print!("     Missed Static Site IDs: ");
