@@ -56,31 +56,9 @@ pub(crate) fn get_live_heap_ticket(ptr: *const u8) -> Option<(u64, u64)> {
     None
 }
 
-/// print heap verification statistics.
-pub fn print_heap_stats() {
-    let total_heap_checks;
-    let mut total_tp = 0;
-    let mut total_fp = 0;
-
-    {
-        let stats = SITE_STATS.lock().unwrap();
-        for (_, s) in stats.iter() {
-            total_tp += s.true_positive;
-            total_fp += s.false_positive;
-        }
-    }
-    total_heap_checks = total_tp + total_fp;
-
-    println!("\n=== Heap Allocation Verification Stats ===");
-    println!("Total Heap Checks: {}", total_heap_checks);
-    println!("True Positives (Correctly Identified Heap): {}", total_tp);
-    println!("False Positives (Identified Heap but not found): {}", total_fp);
-    if total_heap_checks > 0 {
-        let precision = (total_tp as f64 / total_heap_checks as f64) * 100.0;
-        println!("Precision: {:.2}%", precision);
-    }
-    println!("==========================================\n");
-}
+/// heap stats are now reported by unsafe_heap_access::print_unsafe_heap_stats().
+/// this function is kept as a no-op for backward compatibility.
+pub fn print_heap_stats() {}
 
 /// Helper function for `unsafe_heap_access` to query dynamic allocation volumes
 /// for SVF statically predicted `site_id`s.
