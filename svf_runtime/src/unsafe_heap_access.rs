@@ -123,6 +123,15 @@ pub fn print_unsafe_heap_stats() {
     let missed_sites = if let Ok(m) = MISSED_SITE_IDS.try_lock() { m.len() } else { 0 };
     let fp_sites = if let Ok(f) = FP_SITE_IDS.try_lock() { f.len() } else { 0 };
 
+    let mut never_accessed_fp_sites = BTreeSet::new();
+    if let (Ok(analyzed), Ok(matched)) = (GLOBAL_ANALYZED_SITE_IDS.try_lock(), MATCHED_SITE_IDS.try_lock()) {
+        for &id in analyzed.iter() {
+            if !matched.contains(&id) {
+                never_accessed_fp_sites.insert(id);
+            }
+        }
+    }
+
     let tp = ACCESS_TP.load(Ordering::Relaxed);
     let fp = ACCESS_FP.load(Ordering::Relaxed);
     let fn_ = ACCESS_FN.load(Ordering::Relaxed);
@@ -188,6 +197,12 @@ pub fn print_unsafe_heap_stats() {
             for &id in fps.iter() { print!("{} ", id); }
             println!();
         }
+    }
+    if !never_accessed_fp_sites.is_empty() {
+        println!("  -> Completely False Positive sites (SVF identified but NEVER accessed by unsafe ptr): {} unique sites", never_accessed_fp_sites.len());
+        print!("     Completely FP site IDs: ");
+        for &id in never_accessed_fp_sites.iter() { print!("{} ", id); }
+        println!();
     }
     // true negative objects: pointers that svf correctly did not associate with heap,
     // and at runtime they indeed did not access heap. reported as access count above.
