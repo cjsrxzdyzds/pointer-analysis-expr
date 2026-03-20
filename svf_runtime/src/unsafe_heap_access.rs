@@ -121,7 +121,6 @@ pub fn print_unsafe_heap_stats() {
     
     let matched_sites = if let Ok(m) = MATCHED_SITE_IDS.try_lock() { m.len() } else { 0 };
     let missed_sites = if let Ok(m) = MISSED_SITE_IDS.try_lock() { m.len() } else { 0 };
-    let fp_sites = if let Ok(f) = FP_SITE_IDS.try_lock() { f.len() } else { 0 };
 
     let mut never_accessed_fp_sites = BTreeSet::new();
     if let (Ok(analyzed), Ok(matched)) = (GLOBAL_ANALYZED_SITE_IDS.try_lock(), MATCHED_SITE_IDS.try_lock()) {
@@ -130,6 +129,11 @@ pub fn print_unsafe_heap_stats() {
                 never_accessed_fp_sites.insert(id);
             }
         }
+    }
+
+    let mut never_accessed_fp_objs = 0;
+    for &id in never_accessed_fp_sites.iter() {
+        never_accessed_fp_objs += crate::heap::get_site_alloc_count(id);
     }
 
     let tp = ACCESS_TP.load(Ordering::Relaxed);
@@ -158,7 +162,7 @@ pub fn print_unsafe_heap_stats() {
     }
     if fp > 0 {
         if let Ok(fps) = FP_SITE_IDS.try_lock() {
-            print!("  FP site IDs (SVF identified but ptr not on heap): ");
+            print!("  FP site IDs (SVF static analysis claimed pointer targets these sites, but actually not): ");
             for &id in fps.iter() { print!("{} ", id); }
             println!();
         }
@@ -190,17 +194,9 @@ pub fn print_unsafe_heap_stats() {
         for &id in missed.iter() { print!("{} ", id); }
         println!();
     }
-    if fp_sites > 0 {
-        println!("  -> False Positive sites (SVF identified but ptr NOT on heap): {} unique sites", fp_sites);
-        if let Ok(fps) = FP_SITE_IDS.try_lock() {
-            print!("     FP site IDs: ");
-            for &id in fps.iter() { print!("{} ", id); }
-            println!();
-        }
-    }
     if !never_accessed_fp_sites.is_empty() {
-        println!("  -> Completely False Positive sites (SVF identified but NEVER accessed by unsafe ptr): {} unique sites", never_accessed_fp_sites.len());
-        print!("     Completely FP site IDs: ");
+        println!("  -> False Positive objects (SVF identified but NEVER accessed by unsafe ptr): {} [from {} unique sites]", never_accessed_fp_objs, never_accessed_fp_sites.len());
+        print!("     FP site IDs: ");
         for &id in never_accessed_fp_sites.iter() { print!("{} ", id); }
         println!();
     }

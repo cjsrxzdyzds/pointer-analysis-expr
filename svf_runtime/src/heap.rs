@@ -71,6 +71,17 @@ pub(crate) fn get_site_alloc_bytes(site_id: u64) -> u64 {
     0
 }
 
+/// Helper function for `unsafe_heap_access` to query dynamic allocation frequencies
+/// for SVF statically predicted `site_id`s.
+pub(crate) fn get_site_alloc_count(site_id: u64) -> u64 {
+    if let Ok(stats) = SITE_STATS.try_lock() {
+        if let Some(entry) = stats.get(&site_id) {
+            return entry.alloc_count;
+        }
+    }
+    0
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn __svf_report_alloc(ptr: *mut u8, size: usize, site_id: u64) {
     if ptr.is_null() { return; }
