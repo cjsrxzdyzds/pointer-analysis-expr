@@ -1,7 +1,7 @@
 //! svf runtime library — modular design.
 //! provides runtime hooks for svf-based analysis:
 //! - alias checking (__svf_check_alias)
-//! - heap verification (__svf_report_alloc, __svf_report_dealloc, __svf_check_heap)
+//! - heap verification (__svf_report_alloc, __svf_report_dealloc)
 //! - unsafe heap access counting (__svf_unsafe_heap_access)
 
 #![feature(thread_local)]

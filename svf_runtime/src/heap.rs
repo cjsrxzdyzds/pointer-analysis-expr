@@ -1,5 +1,5 @@
 //! heap checking module for svf runtime.
-//! contains __svf_report_alloc, __svf_report_dealloc, __svf_check_heap
+//! contains __svf_report_alloc, __svf_report_dealloc
 //! and the LIVE_HEAP map shared with unsafe_heap_access module.
 
 use std::sync::Mutex;
@@ -17,8 +17,6 @@ struct SiteStats {
     alloc_bytes: u64,
     free_count: u64,
     free_bytes: u64,
-    true_positive: u64,
-    false_positive: u64,
 }
 
 impl SiteStats {
@@ -28,8 +26,6 @@ impl SiteStats {
             alloc_bytes: 0,
             free_count: 0,
             free_bytes: 0,
-            true_positive: 0,
-            false_positive: 0,
         }
     }
 }
@@ -128,42 +124,3 @@ pub unsafe extern "C" fn __svf_report_dealloc(ptr: *mut u8) {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn __svf_check_heap(ptr: *const u8, site_id: u64) {
-    if ptr.is_null() { return; }
-    if IN_CHECKER.with(|c| c.get()) { return; }
-    IN_CHECKER.with(|c| c.set(true));
-    let _guard = ReentrancyGuard;
-
-    // register atexit handler on first call
-    crate::REGISTER_ATEXIT.call_once(|| {
-        crate::atexit(crate::print_stats_wrapper);
-    });
-
-    let addr = ptr as usize;
-
-    let is_valid_heap;
-    {
-        let heap_map = LIVE_HEAP.read().unwrap();
-        if let Some((&base_addr, &(size, _alloc_site_id, _ticket))) = heap_map.range(..=addr).next_back() {
-            is_valid_heap = addr < base_addr + size;
-        } else {
-            is_valid_heap = false;
-        }
-    }
-
-    {
-        let mut stats = SITE_STATS.lock().unwrap();
-        let entry = stats.entry(site_id).or_insert_with(SiteStats::new);
-
-        if is_valid_heap {
-            entry.true_positive += 1;
-        } else {
-            entry.false_positive += 1;
-            eprintln!("[SVF RUNTIME WARNING] False Positive Detected!");
-            eprintln!("  -> SVF static analysis indicated pointer {:#x} accessing site {} was a valid heap object.", addr, site_id);
-            eprintln!("  -> However, at runtime, NO LIVE ALLOCATION bounds contained this pointer.");
-            eprintln!("  -> This indicates either (1) use-after-free, (2) out-of-bounds, or (3) static aliasing mismatch.");
-        }
-    }
-}

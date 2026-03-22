@@ -42,6 +42,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::BTreeSet;
 
+use crate::{IN_CHECKER, ReentrancyGuard};
+
 // heap access counters: count how many loads/stores actually targeted heap objects.
 // these only increment when the runtime confirms the pointer is in LIVE_HEAP.
 static HEAP_LOAD_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -80,11 +82,6 @@ lazy_static! {
     /// unique site_ids svf associated with a pointer that was NOT on heap (false positive sites).
     static ref FP_SITE_IDS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
 }
-
-// reentrancy guard — prevents recursive calls from instrumented
-// code inside this module (locks, btreemap ops, etc.)
-#[thread_local]
-static mut IN_UNSAFE_ACCESS: bool = false;
 
 // thread-local array of svf analysis results for the *current* instruction.
 // populated by `__svf_analyze_heap_obj` and consumed/cleared by `__svf_check_heap_access`.
@@ -220,17 +217,17 @@ pub fn print_unsafe_heap_stats() {
 #[inline(never)]
 pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) {
     if ptr.is_null() { return; }
-    if IN_UNSAFE_ACCESS { return; }
-    IN_UNSAFE_ACCESS = true;
+    if IN_CHECKER.with(|c| c.get()) { return; }
+    IN_CHECKER.with(|c| c.set(true));
+    let _guard = ReentrancyGuard;
 
     let a_len = CURRENT_ANALYSIS_LEN;
     let svf_has_targets = a_len > 0;
     let heap_hit = crate::heap::get_live_heap_ticket(ptr);
 
     match (svf_has_targets, heap_hit) {
-        // TRUE POSITIVE: svf identified heap target(s) AND pointer is on heap
+        // svf identified heap target(s) AND pointer is on heap
         (true, Some((ticket, site_id))) => {
-            ACCESS_TP.fetch_add(1, Ordering::Relaxed);
             if is_load { HEAP_LOAD_COUNT.fetch_add(1, Ordering::Relaxed); }
             else { HEAP_STORE_COUNT.fetch_add(1, Ordering::Relaxed); }
 
@@ -249,6 +246,7 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
                 }
             }
             if matched_current {
+                ACCESS_TP.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut matched) = MATCHED_TOUCHED_TICKETS.try_lock() {
                     matched.insert(ticket);
                 }
@@ -257,6 +255,8 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
                 }
             } else {
                 // svf identified *some* heap target, but not THIS specific site
+                // so it is actually a False Negative for this specific access!
+                ACCESS_FN.fetch_add(1, Ordering::Relaxed);
                 if let Ok(mut sites) = MISSED_SITE_IDS.try_lock() {
                     sites.insert(site_id);
                 }
@@ -303,7 +303,7 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
 
     // unconditionally clear analysis results for next instruction
     CURRENT_ANALYSIS_LEN = 0;
-    IN_UNSAFE_ACCESS = false;
+    // IN_CHECKER is reset by ReentrancyGuard drop
 }
 
 /// runtime hook: called for EACH allocation site svf identified as aliasing a given pointer.
@@ -313,8 +313,9 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
 #[inline(never)]
 pub unsafe extern "C" fn __svf_analyze_heap_obj(ptr: *const u8, site_id: u64) {
     if ptr.is_null() { return; }
-    if IN_UNSAFE_ACCESS { return; }
-    IN_UNSAFE_ACCESS = true;
+    if IN_CHECKER.with(|c| c.get()) { return; }
+    IN_CHECKER.with(|c| c.set(true));
+    let _guard = ReentrancyGuard;
 
     // register atexit handler on first call so stats are printed at exit
     crate::REGISTER_ATEXIT.call_once(|| {
@@ -339,5 +340,5 @@ pub unsafe extern "C" fn __svf_analyze_heap_obj(ptr: *const u8, site_id: u64) {
         }
     }
 
-    IN_UNSAFE_ACCESS = false;
+    // IN_CHECKER is reset by ReentrancyGuard drop
 }
