@@ -30,8 +30,10 @@
 //! ## hook call order (per instrumented load/store)
 //! 1. `__svf_analyze_heap_obj(ptr, site_id)` is called once per svf target — populates
 //!    the thread-local `CURRENT_ANALYSIS` array with the analyzed site ids.
-//! 2. `__svf_check_heap_access(ptr, is_load)` is called once per access — classifies
+//! 2. `__svf_check_heap_access(ptr, is_load, access_id)` is called once per access — classifies
 //!    the access as TP/FP/FN/TN by checking the pointer against `LIVE_HEAP`.
+//! 3. false negatives emit a single-line JSON record keyed by `access_id` so logs
+//!    can be joined against the static `unsafe_accesses` dump.
 //!
 //! IMPORTANT: these hooks are called for EVERY load/store in sese regions,
 //! including loads/stores inside this module and the runtime itself.
@@ -203,6 +205,37 @@ pub fn print_unsafe_heap_stats() {
     println!("======================================\n");
 }
 
+fn print_fn_event_json(
+    kind: &str,
+    access_id: u64,
+    ptr: *const u8,
+    is_load: bool,
+    heap_ticket: u64,
+    runtime_site_id: u64,
+    analyzed_len: usize,
+) {
+    print!(
+        "{{\"event\":\"svf_fn\",\"kind\":\"{}\",\"access_id\":{},\"ptr\":\"{:p}\",\"is_load\":{},\"heap_ticket\":{},\"runtime_site_id\":{},\"predicted_site_ids\":[",
+        kind,
+        access_id,
+        ptr,
+        if is_load { "true" } else { "false" },
+        heap_ticket,
+        runtime_site_id,
+    );
+
+    if let Some(analysis) = unsafe { CURRENT_ANALYSIS } {
+        for i in 0..analyzed_len {
+            if i > 0 {
+                print!(",");
+            }
+            print!("{}", analysis[i]);
+        }
+    }
+
+    println!("],\"predicted_site_count\":{}}}", analyzed_len);
+}
+
 /// runtime hook: called once per instrumented load/store to cross-check svf analysis
 /// against runtime heap state. classifies each access as TP/FP/FN/TN.
 ///
@@ -215,7 +248,7 @@ pub fn print_unsafe_heap_stats() {
 /// - (false, None) => TN: svf correctly had no heap targets for a non-heap pointer
 #[no_mangle]
 #[inline(never)]
-pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) {
+pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool, access_id: u64) {
     if ptr.is_null() { return; }
     if IN_CHECKER.with(|c| c.get()) { return; }
     IN_CHECKER.with(|c| c.set(true));
@@ -260,9 +293,7 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
                 if let Ok(mut sites) = MISSED_SITE_IDS.try_lock() {
                     sites.insert(site_id);
                 }
-                println!("[SVF RUNTIME WARNING] False Negative Detected!");
-                println!("  -> Pointer {:?} accessed heap object from allocation site {}.", ptr, site_id);
-                println!("  -> SVF's analysis did not identify this alias relation for this pointer. (analyzed targets: {})", a_len);
+                print_fn_event_json("site_mismatch", access_id, ptr, is_load, ticket, site_id, a_len);
             }
         }
         // FALSE POSITIVE: svf identified heap target(s) BUT pointer is NOT on heap
@@ -291,9 +322,7 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool) 
             if let Ok(mut sites) = MISSED_SITE_IDS.try_lock() {
                 sites.insert(site_id);
             }
-            println!("[SVF RUNTIME WARNING] False Negative Detected!");
-            println!("  -> Pointer {:?} accessed heap object from allocation site {}.", ptr, site_id);
-            println!("  -> SVF's analysis found no heap targets for this pointer. (analyzed targets: 0)");
+            print_fn_event_json("empty_prediction", access_id, ptr, is_load, ticket, site_id, a_len);
         }
         // TRUE NEGATIVE: svf identified 0 heap targets AND pointer is NOT on heap
         (false, None) => {
