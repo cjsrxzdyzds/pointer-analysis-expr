@@ -87,10 +87,24 @@ lazy_static! {
 
 // thread-local array of svf analysis results for the *current* instruction.
 // populated by `__svf_analyze_heap_obj` and consumed/cleared by `__svf_check_heap_access`.
+//
+// CAP is the maximum number of svf-predicted site_ids retained per access.
+// It was 16 historically; raised to 1024 (P0.5 fix, 2026-04-26) after the
+// FN attribution showed median == max == 16 for site_mismatch predicted-set
+// size, a strong signal that the cap was the bottleneck rather than genuine
+// Andersen saturation.  Still thread-local, still fixed-size: 1024 * 8B =
+// 8 KiB per thread, no heap alloc → no re-entry risk against LIVE_HEAP.
+const CURRENT_ANALYSIS_CAP: usize = 1024;
 #[thread_local]
-static mut CURRENT_ANALYSIS: Option<[u64; 16]> = None;
+static mut CURRENT_ANALYSIS: Option<[u64; CURRENT_ANALYSIS_CAP]> = None;
 #[thread_local]
 static mut CURRENT_ANALYSIS_LEN: usize = 0;
+/// Number of analyze calls during the current burst, including any that
+/// were dropped past CURRENT_ANALYSIS_CAP.  Always >= CURRENT_ANALYSIS_LEN.
+/// Lets the mismatch classifier distinguish genuine site_mismatch from
+/// buffer-truncation artifacts when (rarely) true_len exceeds the cap.
+#[thread_local]
+static mut CURRENT_ANALYSIS_TRUE_LEN: usize = 0;
 
 /// print unsafe heap access statistics.
 /// called via atexit handler registered in `__svf_analyze_heap_obj`.
@@ -233,7 +247,11 @@ fn print_fn_event_json(
         }
     }
 
-    println!("],\"predicted_site_count\":{}}}", analyzed_len);
+    let true_len = unsafe { CURRENT_ANALYSIS_TRUE_LEN };
+    println!(
+        "],\"predicted_site_count\":{},\"predicted_site_count_uncapped\":{}}}",
+        analyzed_len, true_len,
+    );
 }
 
 /// runtime hook: called once per instrumented load/store to cross-check svf analysis
@@ -293,7 +311,17 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool, 
                 if let Ok(mut sites) = MISSED_SITE_IDS.try_lock() {
                     sites.insert(site_id);
                 }
-                print_fn_event_json("site_mismatch", access_id, ptr, is_load, ticket, site_id, a_len);
+                // Tag truncation-suspect events distinctly so post-fix
+                // saturation can be separated from clean mismatches.  With
+                // CURRENT_ANALYSIS_CAP raised to 1024 this should be rare;
+                // when it happens it indicates a true Andersen pts size
+                // beyond what the runtime buffer holds.
+                let kind = if CURRENT_ANALYSIS_TRUE_LEN > a_len {
+                    "site_mismatch_possibly_truncated"
+                } else {
+                    "site_mismatch"
+                };
+                print_fn_event_json(kind, access_id, ptr, is_load, ticket, site_id, a_len);
             }
         }
         // FALSE POSITIVE: svf identified heap target(s) BUT pointer is NOT on heap
@@ -332,6 +360,7 @@ pub unsafe extern "C" fn __svf_check_heap_access(ptr: *const u8, is_load: bool, 
 
     // unconditionally clear analysis results for next instruction
     CURRENT_ANALYSIS_LEN = 0;
+    CURRENT_ANALYSIS_TRUE_LEN = 0;
     // IN_CHECKER is reset by ReentrancyGuard drop
 }
 
@@ -353,9 +382,13 @@ pub unsafe extern "C" fn __svf_analyze_heap_obj(ptr: *const u8, site_id: u64) {
 
     if site_id > 0 {
         if CURRENT_ANALYSIS.is_none() {
-            CURRENT_ANALYSIS = Some([0; 16]);
+            CURRENT_ANALYSIS = Some([0; CURRENT_ANALYSIS_CAP]);
         }
-        if CURRENT_ANALYSIS_LEN < 16 {
+        // Increment the true count first — it tracks ALL analyze calls,
+        // including any past the CAP, so the classifier can detect
+        // truncation-suspect events.
+        CURRENT_ANALYSIS_TRUE_LEN += 1;
+        if CURRENT_ANALYSIS_LEN < CURRENT_ANALYSIS_CAP {
             if let Some(ref mut analysis) = CURRENT_ANALYSIS {
                 analysis[CURRENT_ANALYSIS_LEN] = site_id;
                 CURRENT_ANALYSIS_LEN += 1;
